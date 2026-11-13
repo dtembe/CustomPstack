@@ -1,0 +1,9 @@
+{
+  "name": "pstack",
+  "version": "0.9.138",
+  "description": "pstack for Zcode: Lauren Tan's rigorous agent-workflow skills (poteto-mode and stack) via michael-denyer/pstack-claude 0.9.138 @ a12b047. Two-tier build: registered skills plus on-demand reference leaves. Single-model panels declared; Cursor-only steps skipped with a one-line note.",
+  "author": { "name": "Dan Tembe" },
+  "license": "MIT",
+  "skills": "skills",
+  "agents": "agents"
+}

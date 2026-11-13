@@ -1,0 +1,13 @@
+{
+  "name": "pstack-local",
+  "owner": { "name": "Dan Tembe" },
+  "plugins": [
+    {
+      "name": "pstack",
+      "source": "./pstack",
+      "version": "0.9.138",
+      "description": "pstack for Zcode (via michael-denyer/pstack-claude 0.9.138 @ a12b047).",
+      "category": "developer-tools"
+    }
+  ]
+}

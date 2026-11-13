@@ -1,0 +1,39 @@
+# ============================================================================
+# CustomPstack .gitignore - WHITELIST MODE (deny by default)
+# ============================================================================
+# Security posture: nothing enters the repository unless it is explicitly
+# allowlisted below. Any new file added to this directory stays local until a
+# maintainer allowlists it here. Treat every edit to this file as a security
+# review. The explicit deny list after the allowlist documents intent and
+# keeps protecting if this file is ever flipped to blacklist mode.
+
+# --- deny everything ---------------------------------------------------------
+/*
+
+# --- allowlist: the published build ------------------------------------------
+!/.gitignore
+!/README.md
+!/LICENSE
+!/NOTICE-skills.md
+!/marketplace.json
+!/sync.sh
+!/SKILL-GUIDE.md
+!/pstack/
+!/pstack/**
+
+# --- explicit never-publish, even if reintroduced later -----------------------
+SOURCES.md
+removed-user-skills/
+smoke/
+repo-port-denyer/
+repo-official-cursor/
+*.bak*
+*.log
+*.tmp
+.DS_Store
+
+# --- junk guard inside the allowlisted tree ----------------------------------
+pstack/**/.DS_Store
+pstack/**/*.pyc
+pstack/**/__pycache__/
+pstack/**/*.swp

@@ -21,7 +21,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PORT_DIR="${PSTACK_PORT_DIR:-}"
 if [ -z "$PORT_DIR" ]; then
-  for candidate in "$SCRIPT_DIR/../../repo-port-denyer" "$SCRIPT_DIR/repo-port-denyer"; do
+  for candidate in "$SCRIPT_DIR/repo-port-denyer" "$SCRIPT_DIR/../../repo-port-denyer"; do
     if [ -d "$candidate/plugins/pstack" ]; then PORT_DIR="$(cd "$candidate" && pwd)"; break; fi
   done
 fi
@@ -40,14 +40,19 @@ GENERATED="pstack-zcode pstack-guide"
 
 VER="$(cat "$SRC/VERSION" 2>/dev/null || echo unknown)"
 SHA="$(git -C "$SRC" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+case "$VER$SHA" in
+  *[!0-9A-Za-z._-]*) echo "FATAL: unexpected VERSION or SHA: '$VER' '$SHA'"; exit 1;;
+esac
+[ -n "$VER" ] || { echo "FATAL: empty VERSION in clone"; exit 1; }
 
 is_excluded()   { case " $EXCLUDED " in   *" $1 "*) return 0;; *) return 1;; esac; }
 is_registered() { case " $REGISTERED " in *" $1 "*) return 0;; *) return 1;; esac; }
 is_generated()  { case " $GENERATED " in  *" $1 "*) return 0;; *) return 1;; esac; }
 is_principle()  { case "$1" in principle-*) return 0;; *) return 1;; esac; }
 
-# Strip the Claude-only field from a SKILL.md copy (macOS/BSD sed).
-normalize() { sed -i '' -e '/^user-invocable:/d' "$1"; }
+# Strip the Claude-only field from a SKILL.md copy (portable: temp file + mv,
+# works under BSD and GNU sed).
+normalize() { sed -e '/^user-invocable:/d' "$1" > "$1.norm.tmp" && mv "$1.norm.tmp" "$1"; }
 
 echo "pstack zcode build: source pin $SHA, version $VER"
 
@@ -100,7 +105,7 @@ native; Zcode maps almost 1:1.
 | Read / Grep / Glob | Same names. |
 | AskQuestion | Children cannot ask. The parent chat asks the user; children get full context up front. |
 | environment: "cloud" | Omit. For isolation, pass the child a git worktree path. |
-| Model slugs (opus/fable/sonnet/haiku tiers) | Every role inherits the session model. Review panels (arena, interrogate) are single-model on Zcode; say so plainly, never claim diversity. Never edit model config without Dan asking. |
+| Model slugs (opus/fable/sonnet/haiku tiers) | Every role inherits the session model. Review panels (arena, interrogate) are single-model on Zcode; say so plainly, never claim diversity. Never edit model config without an explicit ask from the operator. |
 | Transcript file reads (recall, ketchup, correct, reflect, automate-me) | Not supported on Zcode. Use the skip policy below. |
 | Cursor Automations, Bugbot, cloud agents, /loop | Skip with the one-line policy below. |
 | Plugin rules file pstack-models.mdc | Role lines live in this plugin's pstack-zcode skill; router reads them. |
@@ -143,7 +148,7 @@ See poteto-mode's \`references/zcode-tools.md\` for the full table. Short form: 
 
 ## Model roles
 
-Every pstack model role inherits the session model. Review panels (arena, interrogate) are single-model on Zcode. Say so plainly; do not claim diversity. Never edit model configuration without Dan asking.
+Every pstack model role inherits the session model. Review panels (arena, interrogate) are single-model on Zcode. Say so plainly; do not claim diversity. Never edit model configuration without an explicit ask from the operator.
 
 ## Cursor-only skip policy (verbatim)
 
@@ -154,7 +159,7 @@ When a step needs one, put one line in your reply, \`Skipped: <step>. <reason>.\
 - setup-pstack: do not run it on Zcode. Model roles are fixed by the rules above.
 - poteto-agent's cache-path fallback searches Claude Code plugin paths; on Zcode the parent must pass the absolute path to poteto-mode's SKILL.md.
 - Reference-tier leaves (not registered as Zcode skills): principles at \`skills/poteto-mode/references/principles/<name>.md\`, other skills at \`skills/poteto-mode/references/skills/<name>/SKILL.md\`. Read on demand.
-- Excluded from this build (cursor-team-kit and thermos extras, per PSTACK-DEV-PLAN section 5): __EXCLUDED__.
+- Not shipped (cursor-team-kit and thermos extras; packaging decision recorded in the repository README): __EXCLUDED__.
 - Update path: git pull in repo-port-denyer, re-run sync.sh, then \`zcode plugins update pstack@pstack-local\`.
 EOF
 sed -i '' -e "s/__VER__/$VER/g" -e "s/__SHA__/$SHA/g" -e "s/__EXCLUDED__/$(echo $EXCLUDED | sed 's/ /, /g')/g" "$OUT/skills/pstack-zcode/SKILL.md"
@@ -211,7 +216,7 @@ cat >> "$GUIDE_BODY" <<EOF
 
 ## Not in this build
 
-Cursor-team-kit extras (deslop, fix-ci, fix-merge-conflicts, get-pr-comments, make-pr-easy-to-review, what-did-i-get-done) and the thermos review pack (thermos, thermo-nuclear-review, thermo-nuclear-code-quality-review) are excluded per PSTACK-DEV-PLAN section 5.
+Cursor-team-kit extras (deslop, fix-ci, fix-merge-conflicts, get-pr-comments, make-pr-easy-to-review, what-did-i-get-done) and the thermos review pack (thermos, thermo-nuclear-review, thermo-nuclear-code-quality-review) are excluded by this repository's packaging decision (see the README, "What this packaging changes").
 
 Source: port version $VER, pin $SHA. Regenerated by sync.sh in this repository; edit that script's tier lists and re-run to promote or demote skills.
 EOF
@@ -224,9 +229,11 @@ awk 'NR==1 && /^---[[:space:]]*$/ {fm=1; next} fm==1 && /^---[[:space:]]*$/ {fm=
 cp "$SRC/plugins/pstack/agents/poteto-agent.md" "$OUT/agents/"
 cp "$SRC/plugins/pstack/agents/comment-sicko.md" "$OUT/agents/"
 
-# --- licenses / provenance ----------------------------------------------------
+# --- licenses / provenance (root copies make the repo self-describing) --------
 cp "$SRC/plugins/pstack/LICENSE" "$OUT/LICENSE" 2>/dev/null || cp "$SRC/LICENSE" "$OUT/LICENSE"
 cp "$SRC/NOTICE-skills.md" "$OUT/NOTICE-skills.md"
+cp "$OUT/LICENSE" "$SCRIPT_DIR/LICENSE"
+cp "$OUT/NOTICE-skills.md" "$SCRIPT_DIR/NOTICE-skills.md"
 
 # --- manifests ----------------------------------------------------------------
 cat > "$OUT/.zcode-plugin/plugin.json" <<EOF

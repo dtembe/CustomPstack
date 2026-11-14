@@ -1,0 +1,13 @@
+{
+  "name": "custom-pstack",
+  "owner": { "name": "Dan Tembe", "url": "https://github.com/dtembe" },
+  "description": "pstack for Claude Code and claude.ai/Cowork (via michael-denyer/pstack-claude 0.9.138 @ a12b047).",
+  "plugins": [
+    {
+      "name": "pstack",
+      "source": "./pstack-cc",
+      "description": "If you want to go fast, go deep first. pstack helps you write less, but higher quality code. rigorous agent workflows you can parallelize with confidence. Original pstack by Lauren Tan (poteto).",
+      "version": "0.9.138"
+    }
+  ]
+}

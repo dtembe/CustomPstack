@@ -1,0 +1,11 @@
+{
+  "name": "pstack",
+  "displayName": "pstack (Claude Code / Codex build)",
+  "version": "0.9.138",
+  "description": "pstack for Claude Code and Codex: Lauren Tan's rigorous agent-workflow skills via michael-denyer/pstack-claude 0.9.138 @ a12b047. Two-tier build: registered skills plus on-demand reference leaves. Cursor-only steps skipped with a one-line note.",
+  "author": { "name": "Dan Tembe", "url": "https://github.com/dtembe" },
+  "homepage": "https://github.com/dtembe/CustomPstack",
+  "repository": "https://github.com/dtembe/CustomPstack",
+  "license": "MIT",
+  "keywords": ["pstack", "poteto-mode", "workflow", "principles", "agent-style", "subagents", "unslop"]
+}

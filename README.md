@@ -67,3 +67,25 @@ After an upstream `git pull`, re-run `sync.sh`; it re-snapshots, re-normalizes, 
 ## License
 
 MIT. Upstream notices: `pstack/LICENSE` (pstack, Lauren Tan) and `pstack/NOTICE-skills.md` (records the three upstream sources the port bundles). The packaging changes in this repository are also MIT.
+
+## Multi-harness layout
+
+One repository now packages pstack for four harnesses from one port clone. `sync.sh` emits every target in one run, and the tier knobs at the top of the script stay the single source of truth.
+
+| Path | Harness | What it is |
+|---|---|---|
+| `pstack/` | Zcode | Zcode plugin. Registered skill tier, reference tier, generated `pstack-zcode` adaptation skill. |
+| `pstack-cc/` | Claude Code, claude.ai/Cowork, Codex | Port-native plugin shared by the Claude and Codex targets. `setup-pstack` registers; there is no `pstack-zcode`. |
+| `.claude-plugin/marketplace.json` | Claude Code, claude.ai/Cowork | Marketplace manifest (`custom-pstack`) pointing at `./pstack-cc`. |
+| `.agents/plugins/marketplace.json` | Codex | Denyer-format Codex marketplace manifest pointing at `./pstack-cc`. |
+| `hermes/pstack-mode/` | Hermes | One router skill. Condensed poteto-mode with playbooks, principles, the harness mapping, and delegate briefs under `references/`. |
+
+Install per harness:
+
+- Zcode: `zcode plugins marketplace add <repo>`, then `zcode plugins install pstack@pstack-local`.
+- Claude Code: `claude plugin marketplace add dtembe/CustomPstack`, then `claude plugin install pstack@custom-pstack`.
+- claude.ai/Cowork: Customize > Plugins > Add marketplace > https://github.com/dtembe/CustomPstack, then install `pstack`.
+- Codex: `codex plugin marketplace add dtembe/CustomPstack`, then `codex plugin add pstack@custom-pstack`.
+- Hermes: copy or symlink `hermes/pstack-mode/` into `~/.hermes/skills/software-development/`.
+
+Update: `git pull` in the port clone, re-run `./sync.sh`, then update or reinstall the plugin in each harness you use.

@@ -20,6 +20,14 @@
 !/SKILL-GUIDE.md
 !/pstack/
 !/pstack/**
+!/.claude-plugin/
+!/.claude-plugin/**
+!/.agents/
+!/.agents/**
+!/pstack-cc/
+!/pstack-cc/**
+!/hermes/
+!/hermes/**
 
 # --- explicit never-publish, even if reintroduced later -----------------------
 SOURCES.md
@@ -32,8 +40,16 @@ repo-official-cursor/
 *.tmp
 .DS_Store
 
-# --- junk guard inside the allowlisted tree ----------------------------------
+# --- junk guard inside the allowlisted trees ----------------------------------
 pstack/**/.DS_Store
 pstack/**/*.pyc
 pstack/**/__pycache__/
 pstack/**/*.swp
+pstack-cc/**/.DS_Store
+pstack-cc/**/*.pyc
+pstack-cc/**/__pycache__/
+pstack-cc/**/*.swp
+hermes/**/.DS_Store
+hermes/**/*.pyc
+hermes/**/__pycache__/
+hermes/**/*.swp

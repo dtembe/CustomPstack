@@ -4,6 +4,8 @@
 #   pstack/     Zcode plugin (registered tier + generated Zcode adaptation)
 #   pstack-cc/  shared Claude Code / Codex plugin (port-native flavor)
 #   hermes/     one Hermes router skill (pstack-mode)
+#   dsh/        DeepSeek Harness bundle (skills provider + cordis patch) and
+#               the tracked root package.json that declares it
 #   .claude-plugin/marketplace.json and .agents/plugins/marketplace.json
 #               root manifests for the shared pstack-cc tree
 # The clone is located in this order: $PSTACK_PORT_DIR, a sibling of the seed
@@ -11,8 +13,9 @@
 # (published repository layout), or a fresh shallow clone.
 # Knobs below: EXCLUDED = never shipped by any target; REGISTERED / GENERATED =
 # the Zcode tier; REGISTERED_CC / GENERATED_CC = the shared Claude Code / Codex
-# tier. Every other pstack-proper skill ships as an on-demand reference under
-# poteto-mode/references/ (Zcode and pstack-cc) or as a Hermes principle leaf.
+# tier; REGISTERED_DSH / GENERATED_DSH = the DeepSeek Harness bundle tier.
+# Every other pstack-proper skill ships as an on-demand reference under
+# poteto-mode/references/ (Zcode, pstack-cc, and dsh) or as a Hermes principle leaf.
 # Edit the knobs, re-run this script, reinstall/update per harness.
 #
 # Rules implemented (PSTACK-DEV-PLAN.md section 4 and the CC/Hermes extension):
@@ -22,6 +25,8 @@
 #   - Cursor-only steps skipped with a one-line note (verbatim policy)
 #   - no model config changes
 #   - user-invocable: false stripped from all copies (Claude-only field; Dan, 2026-11-13)
+#   - dsh: a rank-600 skills provider serves the tier; the bundle writes no
+#     model or reasoning overrides (children inherit the session default)
 set -euo pipefail
 
 # Resolve locations relative to this script, so the same script runs from the
@@ -49,6 +54,14 @@ GENERATED="pstack-zcode pstack-guide"
 # No pstack-zcode here: that adaptation is Zcode-only.
 REGISTERED_CC="$REGISTERED setup-pstack"
 GENERATED_CC="pstack-guide"
+# DeepSeek Harness bundle tier: the shared set minus setup-pstack. setup-pstack
+# stays a reference leaf on purpose: its sheet paths are Claude/Codex specific
+# and this build writes no model configuration.
+REGISTERED_DSH="$REGISTERED"
+GENERATED_DSH="pstack-guide"
+# dsh truncates catalog descriptions at this bound (skills.md,
+# catalogDescriptionMaxLength default); the guard below fails the build over it.
+DSH_DESC_MAX=500
 
 VER="$(cat "$SRC/VERSION" 2>/dev/null || echo unknown)"
 SHA="$(git -C "$SRC" rev-parse --short HEAD 2>/dev/null || echo unknown)"
@@ -62,6 +75,8 @@ is_registered()    { case " $REGISTERED " in    *" $1 "*) return 0;; *) return 1
 is_generated()     { case " $GENERATED " in     *" $1 "*) return 0;; *) return 1;; esac; }
 is_registered_cc() { case " $REGISTERED_CC " in *" $1 "*) return 0;; *) return 1;; esac; }
 is_generated_cc()  { case " $GENERATED_CC " in  *" $1 "*) return 0;; *) return 1;; esac; }
+is_registered_dsh() { case " $REGISTERED_DSH " in *" $1 "*) return 0;; *) return 1;; esac; }
+is_generated_dsh()  { case " $GENERATED_DSH " in  *" $1 "*) return 0;; *) return 1;; esac; }
 is_principle()     { case "$1" in principle-*) return 0;; *) return 1;; esac; }
 
 # Strip the Claude-only field from a SKILL.md copy (portable: temp file + mv,
@@ -705,6 +720,37 @@ Rules this delegate keeps:
 Report: files touched, deletion count, each dependency-rule kill with its citation, each `MUST KILL` flag with one line, each `HOLD` with the rule and where to verify it, and skips. The parent applies or dismisses every flag and owns the code.
 EOF
 
+  # --- smoke test instructions (tracked file; regenerate byte-identical) --------
+  cat > "$OUT/SMOKE-TEST.md" <<'EOF'
+# pstack-mode Hermes smoke test
+
+Run the prompt below in a fresh Hermes session, then record the evidence in `builds/REPORT.md` (seed folder, one row per surface). Fixture: `builds/zcode/smoke/stats.py`, whose `median()` returns the lower middle value for even-length lists. Baseline repro (measured 2026-11-13):
+
+```
+median([1, 3, 2])      -> 2 (expect 2)
+median([1, 2, 3, 4])   -> 3 (expect 2.5)
+median([10])           -> 10 (expect 10)
+median([5, 1, 9, 7])   -> 7 (expect 6.0)
+```
+
+## Prompt
+
+```
+Use pstack-mode to fix the bug in /Users/dtembe/Documents/Claude-Files/pstack/builds/zcode/smoke/stats.py: median() is wrong for even-length lists. Repro first, then fix and verify by re-running the script.
+```
+
+## Acceptance (dev plan H6, all observed not claimed)
+
+1. `todo_list` opened with playbook steps verbatim.
+2. At least one `delegate_task` child spawned with the poteto-agent brief pattern: goal plus full context, absolute file paths. Template: `references/agents/poteto-agent-brief.md` inside the installed skill.
+3. Final reply: repro evidence (command plus output), the fix, a re-run of the original repro, and claims labeled measured/inferred/guess.
+4. Zero Cursor-only steps executed (no Automations, no Bugbot); any skipped step appears as one `Skipped: <step>. <reason>.` line.
+
+## Install facts
+
+Skill: `~/.hermes/skills/software-development/pstack-mode`, a symlink to `hermes/pstack-mode/` in this repository. Updates are `git pull` plus `./sync.sh`; no reinstall step. Discovery check: `hermes skills list` shows `pstack-mode | software-development | local | enabled`.
+EOF
+
   # --- summary ------------------------------------------------------------------
   pb_count="$(ls "$HM_REF/playbooks" | wc -l | tr -d ' ')"
   hprin_count="$(ls "$HM_REF/principles" | wc -l | tr -d ' ')"
@@ -712,8 +758,424 @@ EOF
   echo "hermes output: $OUT"
 }
 
+# =============================================================================
+# Target 4: DeepSeek Harness bundle (dsh/, tracked root package.json)
+# =============================================================================
+build_dsh() {
+  OUT="$SCRIPT_DIR/dsh"
+
+  # --- clean rebuild -----------------------------------------------------------
+  rm -rf "$OUT"
+  mkdir -p "$OUT/lib" "$OUT/skills"
+
+  # --- registered skills: full directory copies --------------------------------
+  for s in $REGISTERED_DSH; do
+    [ -d "$SRC_SKILLS/$s" ] || { echo "FATAL: registered skill missing in clone: $s"; exit 1; }
+    cp -R "$SRC_SKILLS/$s" "$OUT/skills/$s"
+    normalize "$OUT/skills/$s/SKILL.md"
+  done
+
+  # --- description guard: the dsh catalog caps descriptions at DSH_DESC_MAX ----
+  dsh_max_desc=0
+  dsh_max_desc_name=""
+  for s in $REGISTERED_DSH; do
+    f="$OUT/skills/$s/SKILL.md"
+    d="$(awk '/^description:/{sub(/^description:[ ]*/,""); gsub(/^"|"$/,""); print; exit}' "$f")"
+    dlen="$(printf '%s' "$d" | wc -c | tr -d ' ')"
+    if [ "$dlen" -gt "$dsh_max_desc" ]; then dsh_max_desc="$dlen"; dsh_max_desc_name="$s"; fi
+    [ "$dlen" -le "$DSH_DESC_MAX" ] || { echo "FATAL: dsh catalog description of $s is $dlen chars (limit $DSH_DESC_MAX); shorten the frontmatter"; exit 1; }
+  done
+
+  # --- reference tier under poteto-mode/references/ ----------------------------
+  # setup-pstack lands here on purpose: not registered, still readable on demand.
+  PM_REF="$OUT/skills/poteto-mode/references"
+  PRIN="$PM_REF/principles"
+  REFS="$PM_REF/skills"
+  is_registered_target() { is_registered_dsh "$1"; }
+  is_generated_target()  { is_generated_dsh "$1"; }
+  copy_reference_tier
+
+  # --- DSH runtime mapping, stamped with the port pin like the Hermes sheet ----
+  cat > "$PM_REF/dsh-tools.md" <<'EOF'
+# DSH runtime mapping
+
+Build-time adaptation (sync.sh in this repository). pstack bodies are Claude Code native. In DeepSeek Harness, read this file once per session and map each name with the table below. Port version __VER__, pin __SHA__.
+
+| Claude Code primitive | DSH |
+|---|---|
+| Task tool spawn (fresh child) | `subagent`. It is continuable and defaults to background with automatic settlement delivery; steer a running child with `send_message` and list children with `list_agents`. |
+| Task tool spawn (fork) | `subagent_fork`, the fork backend: a fresh child seeded with the parent's settled context (it does not see the in-flight turn); continuable and backgrounded like `subagent`. |
+| `subagent_type: poteto-agent` | No named subagent types. Prepend the brief to the task text: goal, full context (absolute file paths, the verbatim step, constraints), expected output. The child reads referenced files itself. |
+| readonly spawn flag | Not a spawn parameter. Put "do not edit files" in the child's task text, then check `git status` after it returns. |
+| spawn `run_in_background: true` | Omit. `subagent` already defaults to background and delivers the settlement; a background bash run reports through `job_output` and stops with `job_kill`. |
+| TaskCreate / TodoWrite | `todo_write`. |
+| AskUserQuestion | `ask_user_question` (by packaging convention the parent asks; children get full context up front). |
+| Read / Grep / Glob | `read` / `grep` / `glob` (lowercase). `bash` is unchanged. |
+| Transcript file reads (recall, ketchup, correct, reflect, automate-me) | Session transcripts live under the DSH home (`~/.dsh`). Use `session_search` when the session-query tools are loaded; otherwise skip with the policy below. |
+| `environment: "cloud"` | Omit. For isolation, pass the child a git worktree path. |
+| Model slugs (opus/fable/sonnet/haiku tiers) | Omit. This packaging passes no model or reasoning overrides; children inherit the session default. Per-child agentPreset is the operator's explicit configuration and is never written by this build. |
+| Cursor Automations, Bugbot, Cursor cloud agents, /loop | Skip with the policy below. |
+| Plugin rules file pstack-models.mdc | Not shipped. This build writes no model configuration (DEVIATIONS.md items 7 and 10). |
+
+## Skip policy (verbatim)
+
+When a step needs one, put one line in your reply, `Skipped: <step>. <reason>.`, then go on. Do not stop, ask, or retry.
+EOF
+  sed -e "s/__VER__/$VER/g" -e "s/__SHA__/$SHA/g" "$PM_REF/dsh-tools.md" > "$PM_REF/dsh-tools.md.norm.tmp" && mv "$PM_REF/dsh-tools.md.norm.tmp" "$PM_REF/dsh-tools.md"
+
+  # --- declared adaptation note appended to the copied poteto-mode SKILL.md ----
+  cat >> "$OUT/skills/poteto-mode/SKILL.md" <<'EOF'
+
+<!-- pstack-dsh-adaptation: generated by sync.sh; regenerate, do not hand-edit -->
+
+## DSH adaptation
+
+This copy runs on DeepSeek Harness (the custom-pstack-dsh bundle).
+
+- Tool names differ from Claude Code. Full mapping: `references/dsh-tools.md` beside this file.
+- Leaf skills without their own DSH entry live here: principles at `references/principles/<name>.md`, other skills at `references/skills/<name>/SKILL.md` (paths relative to this file; read them with the read tool when this skill or a playbook names them).
+- Model roles: this packaging passes no model or reasoning overrides, so children inherit the session default. Per-child agentPreset is the operator's explicit configuration and is never written by this build. Never edit model configuration without the operator asking. Do not claim panel diversity: panels are single-model unless the operator configures per-child models.
+- Cursor-only steps: put one line in your reply, `Skipped: <step>. <reason>.`, then go on. Do not stop, ask, or retry.
+EOF
+
+  # --- generated skill: pstack-guide (DeepSeek Harness) -------------------------
+  GUIDE_BODY="$OUT/skills/pstack-guide/SKILL.md"
+  mkdir -p "$OUT/skills/pstack-guide"
+  cat > "$GUIDE_BODY" <<'EOF'
+---
+name: pstack-guide
+description: Index of the pstack skills available in this DeepSeek Harness bundle and when to invoke each. Use when unsure which pstack skill applies, when asked what pstack provides, or to find a pstack skill or principle by name.
+---
+
+# pstack skill guide (DeepSeek Harness)
+
+pstack is Lauren Tan's rigorous engineering stack (MIT), shipped for DeepSeek Harness via the michael-denyer port. Two tiers: registered skills below are always visible to the model (invoke with /name or describe the need); reference leaves load only when read from disk.
+
+## Routing rules
+
+1. Non-trivial coding task: nothing to invoke by hand. poteto-mode owns the playbook and todo list and pulls principles as needed. For automatic routing on every non-trivial task, add the router line to your instruction file (~/.dsh/AGENTS.md): "For non-trivial coding tasks, load and follow the poteto-mode skill; skip Cursor-only steps with a one-line note."
+2. Know the specific skill: invoke /name from the registered table.
+3. Not sure: read the tables below; the descriptions are the port's own. Reference leaves are listed at the bottom with their on-disk paths.
+
+## Registered skills
+
+| Skill | Invoke | First line of its description |
+|---|---|---|
+EOF
+
+  for s in pstack-guide $REGISTERED_DSH; do
+    f="$OUT/skills/$s/SKILL.md"
+    [ -f "$f" ] || continue
+    desc="$(awk '/^description:/{sub(/^description:[ ]*/,""); gsub(/^"|"$/,""); print; exit}' "$f")"
+    first="$(printf '%s' "$desc" | cut -c1-160 | sed -e 's/\\//g' -e 's/|/\\|/g')"
+    printf '| %s | /%s | %s |\n' "$s" "$s" "$first" >> "$GUIDE_BODY"
+  done
+
+  cat >> "$GUIDE_BODY" <<'EOF'
+
+## Reference leaves (read on demand, no auto-trigger)
+
+Principles live at `poteto-mode/references/principles/<name>.md`; other leaves at `poteto-mode/references/skills/<name>/SKILL.md` (paths relative to the poteto-mode skill directory). dsh discovers skills one level deep, so these nested leaves are not registered skills; that nesting is the two-tier design.
+
+### Principles
+EOF
+  printf '%b' "$ref_principles" | sed '/^$/d' | awk '{printf "- %s\n", $0}' >> "$GUIDE_BODY"
+  cat >> "$GUIDE_BODY" <<'EOF'
+
+### Other skills
+EOF
+  printf '%b' "$ref_skills" | sed '/^$/d' | awk '{printf "- %s\n", $0}' >> "$GUIDE_BODY"
+  cat >> "$GUIDE_BODY" <<EOF
+
+## Not in this build
+
+Cursor-team-kit extras (deslop, fix-ci, fix-merge-conflicts, get-pr-comments, make-pr-easy-to-review, what-did-i-get-done) and the thermos review pack (thermos, thermo-nuclear-review, thermo-nuclear-code-quality-review) are excluded by this repository's packaging decision (see the README, "What this packaging changes"). setup-pstack ships as a reference leaf, not a registered skill: its sheet paths are Claude and Codex specific, and this packaging writes no model configuration.
+
+Source: port version $VER, pin $SHA. Regenerated by sync.sh in this repository; edit that script's tier lists and re-run to promote or demote skills.
+EOF
+
+  # --- bundle provider: serves skills/ through ctx.skills (no dependencies) ----
+  cat > "$OUT/lib/index.mjs" <<'EOF'
+/**
+ * pstack skill provider for the custom-pstack-dsh DeepSeek Harness bundle.
+ *
+ * Modeled on monkeyin92/ds-pstack lib/skills.js (MIT), with the per-skill
+ * resource base of pstack-ports/dsh-pstack. Generated by sync.sh; regenerate,
+ * do not hand-edit. Installing this bundle is one step: the provider serves
+ * the skills/ directory beside this module through ctx.skills, so nothing is
+ * copied into ~/.dsh/skills.
+ */
+
+import { readdir, readFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+/** Provider name registered on ctx.skills. */
+const PROVIDER_NAME = 'pstack-dsh'
+
+/** Origin bucket for bundle-served skills (skills.md SkillSource). */
+const SOURCE = 'bundled'
+
+/**
+ * Bundled tier rank (skills.md local discovery table): the project roots
+ * (100 to 300) and user roots (400 to 500) are lower and win duplicate
+ * names, so a project's .dsh/skills copy outranks this bundle.
+ */
+const RANK = 600
+
+/** One directory per skill, relative to this module. */
+const SKILLS_DIR = fileURLToPath(new URL('../skills/', import.meta.url))
+
+/** The kebab-case name grammar the registry enforces. */
+const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+
+/**
+ * Parse the frontmatter subset these skills use: `key: value` scalars with
+ * optional quotes. A full YAML parser would be a dependency for two fields,
+ * and one unparsable skill must not break the catalog, so unknown shapes
+ * yield empty fields and the skill is dropped, not thrown.
+ */
+function splitSkill(source) {
+  if (!source.startsWith('---')) return { frontmatter: {}, body: source }
+  const end = source.search(/\n---[ \t]*(?:\r?\n|$)/)
+  if (end < 0) return { frontmatter: {}, body: source }
+  const closing = /\n---[ \t]*(?:\r?\n|$)/.exec(source.slice(end))
+  const body = source.slice(end + (closing?.[0].length ?? 4)).replace(/^\r?\n/, '')
+  const frontmatter = {}
+  for (const line of source.slice(3, end).split(/\r?\n/)) {
+    const match = /^([A-Za-z][A-Za-z0-9_-]*):[ \t]*(.*)$/.exec(line)
+    if (match === null) continue
+    const raw = match[2].trim()
+    // A block-scalar indicator is multi-line content this minimal parser does
+    // not handle: leave the key unset rather than publish a literal '>' or '|'
+    // as the value. An unset name falls back to the directory name and an
+    // unset description drops the skill, which the registry would do anyway.
+    if (raw === '' || raw[0] === '>' || raw[0] === '|') continue
+    frontmatter[match[1]] = unquote(raw)
+  }
+  return { frontmatter, body }
+}
+
+function unquote(value) {
+  const t = value.trim()
+  if (t.length >= 2 && ((t[0] === '"' && t[t.length - 1] === '"') || (t[0] === "'" && t[t.length - 1] === "'"))) {
+    return t.slice(1, -1)
+  }
+  return t
+}
+
+function parseBoolean(value) {
+  if (typeof value !== 'string') return undefined
+  const n = value.trim().toLowerCase()
+  if (['true', 'yes', 'on', '1'].includes(n)) return true
+  if (['false', 'no', 'off', '0'].includes(n)) return false
+  return undefined
+}
+
+/**
+ * Candidate for one skill directory, or undefined when unusable: the registry
+ * drops a malformed name or empty description anyway, and dropping it here
+ * keeps one bad file from failing the whole catalog observation. Omitted
+ * frontmatter flags permit both invocation surfaces (registry default).
+ */
+function candidateOf(dir, source, path) {
+  const { frontmatter } = splitSkill(source)
+  const declared = typeof frontmatter.name === 'string' && frontmatter.name !== '' ? frontmatter.name : dir
+  if (!SKILL_NAME.test(declared)) return undefined
+  const description = typeof frontmatter.description === 'string' ? frontmatter.description.trim() : ''
+  if (description === '') return undefined
+  return {
+    name: declared,
+    description,
+    invocation: {
+      modelInvocable: parseBoolean(frontmatter['disable-model-invocation']) !== true,
+      userInvocable: parseBoolean(frontmatter['user-invocable']) !== false,
+    },
+    source: SOURCE,
+    provider: PROVIDER_NAME,
+    resourceBase: { kind: 'directory', path: join(SKILLS_DIR, dir) },
+    rank: RANK,
+    locator: path,
+  }
+}
+
+async function listSkills() {
+  let entries
+  try {
+    entries = await readdir(SKILLS_DIR, { withFileTypes: true })
+  } catch (error) {
+    // A bundle installed without its skills directory is a packaging defect,
+    // not a runtime condition: report it rather than serving an empty catalog.
+    throw new Error(`pstack-dsh: cannot read skill directory ${SKILLS_DIR}: ${String(error?.message ?? error)}`)
+  }
+  const candidates = []
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    const path = join(SKILLS_DIR, entry.name, 'SKILL.md')
+    let source
+    try {
+      source = await readFile(path, 'utf8')
+    } catch {
+      continue
+    }
+    const candidate = candidateOf(entry.name, source, path)
+    if (candidate !== undefined) candidates.push(candidate)
+  }
+  return candidates
+}
+
+/** The skill provider registered on ctx.skills. */
+const provider = {
+  name: PROVIDER_NAME,
+  async list() {
+    return { candidates: await listSkills(), complete: true }
+  },
+  async get(candidate, options) {
+    if (typeof candidate?.locator !== 'string') return undefined
+    const source = await readFile(candidate.locator, { encoding: 'utf8', signal: options?.signal })
+    const { body } = splitSkill(source)
+    const { rank: _rank, locator: _locator, ...summary } = candidate
+    return { ...summary, content: body }
+  },
+}
+
+/** Cordis plugin name; the profile row id is set by cordis.patch.yml. */
+export const name = 'pstack'
+
+/** The skill registry is a hard dependency. */
+export const inject = ['skills']
+
+/** Register the bundled provider. */
+export function apply(ctx) {
+  ctx.skills.registerProvider(() => provider)
+}
+EOF
+
+  # --- bundle patch: one insert row, resolved through the package manifest -----
+  cat > "$OUT/cordis.patch.yml" <<'EOF'
+# custom-pstack-dsh bundle patch. Generated by sync.sh; regenerate, do not hand-edit.
+#
+# Declared by package.json "dsh"."bundle"."patch"; applied when this package is
+# listed in a profile's dsh.profile.bundles. The row mounts the pstack skill
+# provider in lib/index.mjs, which serves this bundle's skills/ directory.
+# The row name resolves through the package manifest (main / exports): the
+# publish docs prescribe package-name resolution for bundle rows, so Node
+# resolution finds the installed code.
+
+- insert:
+    - id: pstack
+      name: custom-pstack-dsh
+EOF
+
+  # --- dsh/README.md ------------------------------------------------------------
+  cat > "$OUT/README.md" <<'EOF'
+# pstack bundle for DeepSeek Harness
+
+This directory is a dsh plugin bundle: Lauren Tan's pstack skills, generated by sync.sh in this repository. The provider in `lib/index.mjs` serves the `skills/` tree through the harness skill registry. Do not hand-edit anything here; re-run `./sync.sh`.
+
+## Two tiers, one discovery level
+
+dsh discovers skills one level deep. The 14 top-level directories under `skills/` register as skills. Everything else nests under `skills/poteto-mode/references/` and is read on demand, so the nested leaves never enter the catalog. That nesting is the two-tier design, not an accident. Tool-name differences are mapped in `skills/poteto-mode/references/dsh-tools.md`.
+
+## Install
+
+From a git checkout (pin the ref; the publish docs advise a commit SHA pin so a later push cannot silently change what runs, a tag such as dsh-<version> also works):
+
+    dsh plugin --profile <name> add github:dtembe/CustomPstack#dsh-<version>
+    dsh plugin --profile <name> add github:dtembe/CustomPstack#<commit-sha>
+
+Or from a local checkout:
+
+    dsh plugin --profile <name> add /path/to/CustomPstack
+
+The provider is plain ESM, so no build script runs and no build allowance is needed.
+
+## Update and rollback
+
+Update: `git pull`, re-run `./sync.sh`, then run the same `dsh plugin add` command again. Rollback: `dsh plugin --profile <name> remove custom-pstack-dsh`.
+
+## Routing and models
+
+Put the routing line in `~/.dsh/AGENTS.md`:
+
+    For non-trivial coding tasks, load and follow the poteto-mode skill; skip Cursor-only steps with a one-line note.
+
+This bundle passes no model or reasoning overrides. Children inherit the session default, and per-child agentPreset stays the operator's configuration. Never edit model configuration without the operator asking; panels are single-model unless the operator configures per-child models.
+
+## Status
+
+Developer-preview software on a developer-preview harness (dsh 0.2.x). The root package.json declares `engines.dsh: >=0.2.0 <0.3.0`, which dsh enforces at install and profile boot.
+EOF
+
+  # --- smoke test instructions (same fixture and shape as the Hermes one) -------
+  cat > "$OUT/SMOKE-TEST.md" <<'EOF'
+# pstack-dsh bundle smoke test
+
+Run the prompt below in a fresh headless dsh session, then record the evidence in `builds/REPORT.md` (seed folder, one row per surface). The exact command (the headless profile runs one fresh persisted session, prints the final answer, and exits):
+
+```
+dsh --profile headless "Use the poteto-mode skill to fix the bug in /Users/dtembe/Documents/Claude-Files/pstack/builds/zcode/smoke/stats.py: median() is wrong for even-length lists. Repro first, then fix and verify by re-running the script."
+```
+
+Fixture: `builds/zcode/smoke/stats.py`, whose `median()` returns the lower middle value for even-length lists. Baseline repro (from the Hermes smoke test, same fixture, measured 2026-11-13):
+
+```
+median([1, 3, 2])      -> 2 (expect 2)
+median([1, 2, 3, 4])   -> 3 (expect 2.5)
+median([10])           -> 10 (expect 10)
+median([5, 1, 9, 7])   -> 7 (expect 6.0)
+```
+
+## Acceptance (all observed, not claimed)
+
+1. Layer check: `dsh --profile headless --dump-config` shows the custom-pstack-dsh layer, and the session catalog lists the bundle's skills (poteto-mode among them).
+2. poteto-mode drives the run: a todo list (`todo_write`) opened with playbook steps verbatim, and at least one `subagent` or `subagent_fork` child carrying the brief pattern: goal plus full context, absolute file paths.
+3. Final reply: repro evidence (command plus output), the fix, a re-run of the original repro, and claims labeled measured/inferred/guess.
+4. Zero Cursor-only steps executed (no Automations, no Bugbot); any skipped step appears as one `Skipped: <step>. <reason>.` line.
+
+## Install facts
+
+Bundle: `dsh plugin --profile <name> add github:dtembe/CustomPstack#dsh-<version>` or a local path add. Updates are `git pull` plus `./sync.sh`, then the same `dsh plugin add` again. The fixture is restored to its buggy state afterward, so the next run reproduces.
+EOF
+
+  # --- tracked root package.json: the bundle manifest dsh resolves --------------
+  cat > "$SCRIPT_DIR/package.json" <<EOF
+{
+  "name": "custom-pstack-dsh",
+  "version": "$VER",
+  "private": true,
+  "type": "module",
+  "description": "pstack for DeepSeek Harness: Lauren Tan's rigorous agent-workflow skills via michael-denyer/pstack-claude $VER @ $SHA. Two-tier build served by a bundle skills provider.",
+  "author": "Dan Tembe",
+  "license": "MIT",
+  "main": "./dsh/lib/index.mjs",
+  "exports": {
+    ".": "./dsh/lib/index.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": ["dsh", "README.md", "LICENSE", "NOTICE-skills.md", "DEVIATIONS.md"],
+  "engines": {
+    "dsh": ">=0.2.0 <0.3.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./dsh/cordis.patch.yml"
+    }
+  }
+}
+EOF
+
+  # --- summary ------------------------------------------------------------------
+  dsh_count="$(ls "$OUT/skills" | wc -l | tr -d ' ')"
+  dprin_count="$(ls "$PRIN" | wc -l | tr -d ' ')"
+  dref_count="$(ls "$REFS" | wc -l | tr -d ' ')"
+  echo "dsh target: skills $dsh_count (incl. pstack-guide), reference principles $dprin_count, reference skills $dref_count, max description $dsh_max_desc chars ($dsh_max_desc_name, limit $DSH_DESC_MAX)"
+  echo "dsh output: $OUT"
+}
+
 # --- run every target, Zcode first (its root artifacts are the reference copy) --
 build_zcode
 build_cc
 build_hermes
-echo "build complete: pstack/ (Zcode), pstack-cc/ (Claude Code / Codex), hermes/ (Hermes router)"
+build_dsh
+echo "build complete: pstack/ (Zcode), pstack-cc/ (Claude Code / Codex), hermes/ (Hermes router), dsh/ (DeepSeek Harness bundle)"

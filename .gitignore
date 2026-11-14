@@ -29,6 +29,9 @@
 !/pstack-cc/**
 !/hermes/
 !/hermes/**
+!/dsh/
+!/dsh/**
+!/package.json
 
 # --- explicit never-publish, even if reintroduced later -----------------------
 SOURCES.md
@@ -54,3 +57,7 @@ hermes/**/.DS_Store
 hermes/**/*.pyc
 hermes/**/__pycache__/
 hermes/**/*.swp
+dsh/**/.DS_Store
+dsh/**/*.pyc
+dsh/**/__pycache__/
+dsh/**/*.swp

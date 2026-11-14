@@ -1,0 +1,23 @@
+{
+  "name": "custom-pstack-dsh",
+  "version": "0.9.138",
+  "private": true,
+  "type": "module",
+  "description": "pstack for DeepSeek Harness: Lauren Tan's rigorous agent-workflow skills via michael-denyer/pstack-claude 0.9.138 @ a12b047. Two-tier build served by a bundle skills provider.",
+  "author": "Dan Tembe",
+  "license": "MIT",
+  "main": "./dsh/lib/index.mjs",
+  "exports": {
+    ".": "./dsh/lib/index.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": ["dsh", "README.md", "LICENSE", "NOTICE-skills.md", "DEVIATIONS.md"],
+  "engines": {
+    "dsh": ">=0.2.0 <0.3.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./dsh/cordis.patch.yml"
+    }
+  }
+}

@@ -18,6 +18,7 @@
 !/marketplace.json
 !/sync.sh
 !/SKILL-GUIDE.md
+!/DEVIATIONS.md
 !/pstack/
 !/pstack/**
 !/.claude-plugin/

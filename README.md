@@ -1,6 +1,6 @@
-# CustomPstack - pstack for Zcode
+# CustomPstack
 
-A Zcode plugin packaging of pstack, Lauren Tan's rigorous engineering skill stack for coding agents. This repository exists to run pstack natively in Zcode with a two-tier skill exposure that keeps session context small.
+Packaging of [pstack](https://github.com/cursor/plugins) for Zcode, Claude Code, claude.ai/Cowork, Codex, and Hermes. pstack is Lauren Tan's rigorous engineering skill stack for coding agents. One build script emits every target from one pinned port clone, and each harness consumes its native plugin or skill hierarchy. Skill content ships as the port wrote it; every packaging difference from upstream is listed in [DEVIATIONS.md](DEVIATIONS.md), with a verification command for each.
 
 ## Credits and provenance
 
@@ -9,83 +9,65 @@ This project only exists because of the work of others. In order of contribution
 | Work | Author | Source | License | Role in this repo |
 |---|---|---|---|---|
 | pstack (original) | Lauren Tan | https://github.com/cursor/plugins (folder `pstack`) | MIT | The original skill content and workflow design. All substantive skill text descends from this work. |
-| pstack-claude (port) | Michael Denyer | https://github.com/michael-denyer/pstack-claude | MIT | Build-time translation of Cursor names to Claude Code names. The skill text shipped in `pstack/` is this port's content; the exact version and source pin are recorded in `pstack/.zcode-plugin/plugin.json` (0.9.138 @ `a12b047` at packaging time). |
-| Zcode packaging | Dan Tembe | this repository | MIT | Zcode plugin manifest, two-tier skill exposure, frontmatter normalization, Zcode adaptation notes, and the `sync.sh` build script. |
+| pstack-claude (port) | Michael Denyer | https://github.com/michael-denyer/pstack-claude | MIT | Build-time translation of Cursor names to Claude Code names. The skill text shipped in `pstack/` and `pstack-cc/` is this port's content; the exact version and source pin are stamped in every manifest (0.9.138 @ `a12b047` at packaging time). |
+| Multi-harness packaging | Dan Tembe | this repository | MIT | Per-harness manifests and hierarchies, two-tier skill exposure, frontmatter normalization, the Zcode and Hermes adaptations, and the `sync.sh` build script. |
 
 Not affiliated with, endorsed by, or produced by Lauren Tan, Cursor, Michael Denyer, or Z.ai. All credit for the pstack methodology and skill content belongs to the original authors. This packaging is permitted by the MIT licenses of both upstream works, and the license notices travel with the content (`pstack/LICENSE`, `pstack/NOTICE-skills.md`, which records all three upstream sources).
 
-## What this packaging changes vs the port
+## What this packaging changes
 
-1. Two-tier exposure. Only 15 skills register as real Zcode skills (about 1,300 to 1,500 tokens of standing index per session). The other 45 ship as on-demand reference files under `pstack/skills/poteto-mode/references/` and are read from disk when poteto-mode or a playbook names them. Full index cost for all 58 would be about 3,300 tokens.
-2. Tier knobs. The `REGISTERED` and `EXCLUDED` lists at the top of `sync.sh` are the single source of truth. Edit, re-run, update the plugin.
-3. Exclusions. Nine skills are not shipped: six cursor-team-kit utilities (`deslop`, `fix-ci`, `fix-merge-conflicts`, `get-pr-comments`, `make-pr-easy-to-review`, `what-did-i-get-done`) and three thermos review skills (`thermos`, `thermo-nuclear-review`, `thermo-nuclear-code-quality-review`). Their subagent definitions are excluded with them.
-4. Frontmatter normalization. `user-invocable: false` (a Claude Code field on the 24 principle skills) is stripped from every copy. The field stays maintained upstream.
-5. Zcode adaptation. A generated `pstack-zcode` skill and a `zcode-tools.md` runtime mapping declare, rather than fake: tool-name mappings (Agent, TodoWrite, Read, Grep, Glob map one to one), single-model review panels (every model role inherits the session model on Zcode), the Cursor-only skip policy (verbatim: "Skipped: <step>. <reason>." then go on), and unsupported transcript-based skills.
-6. Generated helper. `pstack-guide` (skill) and `SKILL-GUIDE.md` (human-readable) answer "which skill when" and are regenerated from the same tier lists, so they cannot drift.
+In short: the skills are not rewritten, but they are not all loaded the way upstream loads them.
 
-## Install in Zcode
+1. Two-tier exposure. A small registered tier installs as real skills; everything else nests under `poteto-mode/references/` and is read from disk on demand. This cuts the standing per-session index cost by more than half.
+2. Nine port skills are excluded (six cursor-team-kit utilities, three thermos review skills) plus the two thermos subagents.
+3. The `user-invocable: false` frontmatter field is stripped from every copy.
+4. Per-harness adaptation content is generated at build time: `pstack-zcode` + `zcode-tools.md` (Zcode), a `pstack-guide` index skill, and the `hermes/pstack-mode` router skill.
+5. The port's SessionStart hooks and `models.json` are not shipped. Routing comes from instruction-file lines; role defaults stay stamped in the skill text.
 
-From a checkout of this repository:
+[DEVIATIONS.md](DEVIATIONS.md) carries the full list, the reasons, the byte-identity proof for the shipped content, and a verification command for every claim. Tier knobs (`REGISTERED`, `REGISTERED_CC`, `EXCLUDED`) live at the top of `sync.sh` and are the single source of truth.
 
-```
-zcode plugins marketplace add <path-to-this-checkout>
-zcode plugins install pstack@pstack-local
-```
+## Install per harness
 
-Or add the repository through the Zcode app: Plugin Marketplace, Add, then install `pstack`. Plugin skills appear as `pstack:<name>` (for example `pstack:poteto-mode`).
+- Zcode: `zcode plugins marketplace add <path-to-this-checkout>`, then `zcode plugins install pstack@pstack-local`. Or add the repository through the Zcode app. Skills appear as `pstack:<name>`.
+- Claude Code: `claude plugin marketplace add dtembe/CustomPstack`, then `claude plugin install pstack@custom-pstack`.
+- claude.ai / Cowork / Claude Desktop: Customize > Plugins > Add marketplace > `https://github.com/dtembe/CustomPstack`, then install `pstack`. Account-level: skills and agents load in chat and Cowork tasks.
+- Codex: `codex plugin marketplace add dtembe/CustomPstack`, then `codex plugin add pstack@custom-pstack`. Skills appear as `$pstack:<name>`.
+- Hermes: copy or symlink `hermes/pstack-mode/` into `~/.hermes/skills/software-development/`. One router skill; Hermes triggers it by description match.
 
-For routing, add this line to your Zcode user instruction file (`~/.zcode/AGENTS.md`):
+### Routing
+
+The port's SessionStart hook is intentionally not shipped (see [DEVIATIONS.md](DEVIATIONS.md), item 6). Auto-routing comes from one line in each harness's user instruction file (`~/.zcode/AGENTS.md`, `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`):
 
 ```
 For non-trivial coding tasks, load and follow the poteto-mode skill; skip Cursor-only steps with a one-line note.
 ```
 
-The port's routing hook is intentionally not shipped; routing comes from the instruction file.
-
 ## Build from source
 
-`sync.sh` regenerates `pstack/`, `marketplace.json`, and `SKILL-GUIDE.md` from a clone of michael-denyer/pstack-claude. Clone resolution order: `$PSTACK_PORT_DIR`, `../../repo-port-denyer` (the local seed layout), `./repo-port-denyer` (this repository's layout), or a fresh shallow clone fetched into `./repo-port-denyer`.
+`sync.sh` regenerates every target from a clone of michael-denyer/pstack-claude. Clone resolution order: `$PSTACK_PORT_DIR`, `../../repo-port-denyer` (the local seed layout), `./repo-port-denyer` (this repository's layout), or a fresh shallow clone fetched into `./repo-port-denyer`.
 
 ```
 ./sync.sh
-zcode plugins update pstack@pstack-local
 ```
 
-After an upstream `git pull`, re-run `sync.sh`; it re-snapshots, re-normalizes, and rewrites both manifests with the new version and pin.
+After an upstream `git pull`, re-run `./sync.sh`; it re-snapshots, re-normalizes, and rewrites all manifests with the new version and pin. Then update or reinstall the plugin in each harness you use. The Zcode target's output is the reference copy; a change that alters it unintentionally is a bug.
 
 ## Layout
 
 | Path | What |
 |---|---|
-| `sync.sh` | Build script; tier knobs at the top |
-| `pstack/` | The generated plugin (`skills/` 15 registered skills, `agents/` poteto-agent and comment-sicko, `.zcode-plugin/plugin.json`) |
-| `pstack/skills/poteto-mode/references/` | The reference tier: `principles/` (24), `skills/` (21), `zcode-tools.md` |
-| `marketplace.json` | Local marketplace definition (`pstack-local`) |
-| `SKILL-GUIDE.md` | Human-readable "which skill when" (same content as the `pstack-guide` skill) |
+| `sync.sh` | Build script; tier knobs at the top; emits all targets in one run |
+| `pstack/` | Zcode plugin (`.zcode-plugin/plugin.json`, 15 registered skills, reference tier, 2 agents) |
+| `pstack-cc/` | Shared Claude Code + Codex plugin (`.claude-plugin/` and `.codex-plugin/` manifests, same skills tree, 2 agents) |
+| `pstack*/skills/poteto-mode/references/` | Reference tier: `principles/` (24), `skills/` (20 to 21), per-runtime tool mappings from the port |
+| `hermes/pstack-mode/` | One Hermes router skill (5731-char body, 23 playbooks, 24 principles, delegate briefs, harness mapping) |
+| `marketplace.json` | Zcode marketplace definition (`pstack-local`) |
+| `.claude-plugin/marketplace.json` | Claude marketplace definition (`custom-pstack`) |
+| `.agents/plugins/marketplace.json` | Codex marketplace definition (`custom-pstack`, Denyer format) |
+| `SKILL-GUIDE.md` | Human-readable "which skill when" (mirrors the Zcode `pstack-guide` skill) |
+| `DEVIATIONS.md` | Every difference from upstream, with verification commands |
 | `LICENSE`, `NOTICE-skills.md` | MIT license and upstream provenance |
 
 ## License
 
 MIT. Upstream notices: `pstack/LICENSE` (pstack, Lauren Tan) and `pstack/NOTICE-skills.md` (records the three upstream sources the port bundles). The packaging changes in this repository are also MIT.
-
-## Multi-harness layout
-
-One repository now packages pstack for four harnesses from one port clone. `sync.sh` emits every target in one run, and the tier knobs at the top of the script stay the single source of truth.
-
-| Path | Harness | What it is |
-|---|---|---|
-| `pstack/` | Zcode | Zcode plugin. Registered skill tier, reference tier, generated `pstack-zcode` adaptation skill. |
-| `pstack-cc/` | Claude Code, claude.ai/Cowork, Codex | Port-native plugin shared by the Claude and Codex targets. `setup-pstack` registers; there is no `pstack-zcode`. |
-| `.claude-plugin/marketplace.json` | Claude Code, claude.ai/Cowork | Marketplace manifest (`custom-pstack`) pointing at `./pstack-cc`. |
-| `.agents/plugins/marketplace.json` | Codex | Denyer-format Codex marketplace manifest pointing at `./pstack-cc`. |
-| `hermes/pstack-mode/` | Hermes | One router skill. Condensed poteto-mode with playbooks, principles, the harness mapping, and delegate briefs under `references/`. |
-
-Install per harness:
-
-- Zcode: `zcode plugins marketplace add <repo>`, then `zcode plugins install pstack@pstack-local`.
-- Claude Code: `claude plugin marketplace add dtembe/CustomPstack`, then `claude plugin install pstack@custom-pstack`.
-- claude.ai/Cowork: Customize > Plugins > Add marketplace > https://github.com/dtembe/CustomPstack, then install `pstack`.
-- Codex: `codex plugin marketplace add dtembe/CustomPstack`, then `codex plugin add pstack@custom-pstack`.
-- Hermes: copy or symlink `hermes/pstack-mode/` into `~/.hermes/skills/software-development/`.
-
-Update: `git pull` in the port clone, re-run `./sync.sh`, then update or reinstall the plugin in each harness you use.
